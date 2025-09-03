@@ -13,7 +13,6 @@ void printOneArg(char* s, unsigned char* code){
 int handleOpcode(unsigned char *codebuffer, int pc){
     unsigned char *code = &codebuffer[pc];
     int opbytes = 1;  //size of opcode
-    printf("Location %04x: ", pc);
     switch(code[0]){
         case 0x00: printf("NOP"); break;
         case 0x01: printTwoArgs("LXI B", code); opbytes = 3; break;

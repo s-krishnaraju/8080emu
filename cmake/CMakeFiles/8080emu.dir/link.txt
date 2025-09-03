@@ -1,0 +1,1 @@
+/usr/bin/cc -rdynamic CMakeFiles/8080emu.dir/src/emu.c.o -o 8080emu 

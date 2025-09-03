@@ -1,0 +1,3 @@
+/home/senthoor/programming/8080emu/cmake/CMakeFiles/8080emu.dir
+/home/senthoor/programming/8080emu/cmake/CMakeFiles/edit_cache.dir
+/home/senthoor/programming/8080emu/cmake/CMakeFiles/rebuild_cache.dir

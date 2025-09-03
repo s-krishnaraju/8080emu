@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/senthoor/programming/8080emu/cmake",
+  "command": "/usr/bin/cc    -o CMakeFiles/8080emu.dir/src/emu.c.o -c /home/senthoor/programming/8080emu/src/emu.c",
+  "file": "/home/senthoor/programming/8080emu/src/emu.c",
+  "output": "CMakeFiles/8080emu.dir/src/emu.c.o"
+}
+]
