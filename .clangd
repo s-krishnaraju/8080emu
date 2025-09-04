@@ -1,2 +1,2 @@
-compileFlags:
-    CompilationDatabase: "cmake"
+CompileFlags:
+    CompilationDatabase: "build"
