@@ -18,6 +18,11 @@ void printByte(uint8_t x) {
   printf("\n");
 }
 
+#define GENERATE_CASE(value, action)                                           \
+  case value:                                                                  \
+    action;                                                                    \
+    break;
+
 /* handle
   xxxxxSSS | S = src register
 
@@ -158,8 +163,10 @@ int handleOpcode(uint8_t *codebuffer, int pc) {
   case 0xd3:
     printf("OUT");
     break;
-  default:
-    break;
+
+    GENERATE_CASE(default, printf("DEFAULT"))
+    // default:
+    //   break;
   }
   uint8_t last_two_bits = code[0] >> 6;
   uint8_t first_three_bits = code[0] & 7;
