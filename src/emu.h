@@ -49,7 +49,7 @@ Condition code 'CCC' fields: (FLAGS: S Z x A x P x C)
 Inst      Encoding          Flags   Description
 ----------------------------------------------------------------------
 MOV D,S   01DDDSSS          -       Move register to register
-MVI D,#   00DDD110 db       -       Move immediate to register
+MVI D,#   01DDD110 db       -       Move immediate to register
 LXI RP,#  00RP0001 lb hb    -       Load register pair immediate
 LDA a     00111010 lb hb    -       Load A from memory
 STA a     00110010 lb hb    -       Store A to memory
