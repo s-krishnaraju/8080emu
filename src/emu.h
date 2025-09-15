@@ -118,7 +118,7 @@ typedef struct {
   uint8_t s : 1;  // sign
   uint8_t p : 1;  // parity
   uint8_t ac : 1; // aux carry for binary coded decimal arithmetic
-  uint8_t c : 1;  // carry flag for add
+  uint8_t cy : 1;  // carry flag for add
   uint8_t pad : 3;
 } ConditionCodes;
 
@@ -160,4 +160,5 @@ typedef struct {
   case g:                                                                      \
   case h:
 
-
+#define Parity(x)
+    x
