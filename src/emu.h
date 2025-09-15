@@ -142,6 +142,8 @@ typedef struct {
 #define STACK_START 0x2400 // grows down in memory
 #define PROGRAM_START 0x0000
 
+#define MEM_REGISTER 6
+
 #define GENERATE_4_CASES(a, b, c, d)                                           \
   case a:                                                                      \
   case b:                                                                      \
@@ -157,3 +159,5 @@ typedef struct {
   case f:                                                                      \
   case g:                                                                      \
   case h:
+
+

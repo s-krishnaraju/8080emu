@@ -18,31 +18,66 @@ void printByte(uint8_t x) {
   printf("\n");
 }
 
+uint16_t get16Bit(uint8_t hb, uint8_t lb) { return (hb << 8) | lb; }
+
+uint8_t getMReg(CPUState *state) {
+  uint16_t addr = get16Bit(state->h, state->l);
+  return state->memory[addr];
+}
+
+void setMReg(CPUState *state, uint8_t data) {
+  uint16_t addr = get16Bit(state->h, state->l);
+  state->memory[addr] = data;
+}
 
 int handleOpcode(CPUState *state, uint8_t *registers[]) {
   uint8_t *code = &state->memory[state->pc];
-  int opbytes = 1;
+  int new_pc = state->pc + 1;
 
   switch (code[0]) {
   // LDA
-  case 0x3a:
+  case 0x3a: {
     printf("LDA");
+    uint16_t addr = get16Bit(code[2], code[1]);
+    state->a = state->memory[addr];
+    new_pc = state->pc + 3;
     break;
+  }
   // STA
-  case 0x32:
+  case 0x32: {
     printf("STA");
+    uint16_t addr = get16Bit(code[2], code[1]);
+    state->memory[addr] = state->a;
+    new_pc = state->pc + 3;
     break;
+  }
   // LHLD
-  case 0x2a:
+  case 0x2a: {
     printf("LHLD");
+    uint16_t addr = get16Bit(code[2], code[1]);
+    state->l = state->memory[addr];
+    state->h = state->memory[addr + 1];
+    new_pc = state->pc + 3;
     break;
+  }
   // SHLD
-  case 0x22:
+  case 0x22: {
     printf("SHLD");
+    uint16_t addr = get16Bit(code[2], code[1]);
+    state->memory[addr] = state->l;
+    state->memory[addr+1] = state->h;
+    new_pc = state->pc + 3;
     break;
+  }
   // XCHG
   case 0xeb:
     printf("XCHG");
+    uint8_t tmp = state->h;
+    state->h = state->d;
+    state->d = tmp;
+    tmp = state->l;
+    state->l = state->e;
+    state->e = tmp;
     break;
   // ADI
   case 0xc6:
@@ -150,26 +185,69 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
   // CPI
   case 0xfe:
     printf("CPI");
-    opbytes = 2;
+    new_pc = 2;
     break;
 
   // MOV
   case 0x40 ... 0x75:
-  case 0x77 ... 0x7f:
+  case 0x77 ... 0x7f: {
     printf("MOV");
-    opbytes = 3;
-    break;
 
-    // MVI
-    GENERATE_8_CASES(0x06, 0x0e, 0x16, 0x1e, 0x26, 0x2e, 0x36, 0x3e)
+    uint8_t dest_reg = (code[0] >> 3) & 7;
+    uint8_t src_reg = code[0] & 7;
+
+    if (src_reg == MEM_REGISTER) {
+      dest_reg = getMReg(state);
+    } else if (dest_reg == MEM_REGISTER) {
+      setMReg(state, *registers[src_reg]);
+    } else {
+      *registers[dest_reg] = *registers[src_reg];
+    }
+
+    new_pc = state->pc + 3;
+    break;
+  }
+
+  // MVI
+  case 0x06:
+  case 0x0e:
+  case 0x16:
+  case 0x1e:
+  case 0x26:
+  case 0x2e:
+  case 0x36:
+  case 0x3e: {
     printf("MVI");
-    opbytes = 2;
-    break;
+    uint8_t dest_reg = (code[0] >> 3) & 7;
+    if (dest_reg == MEM_REGISTER) {
+      setMReg(state, code[1]);
+    } else {
+      *registers[dest_reg] = code[1];
+    }
 
-    // LXI
-    GENERATE_4_CASES(0x01, 0x11, 0x21, 0x31)
-    printf("LXI");
-    opbytes = 3;
+    new_pc = state->pc + 2;
+    break;
+  }
+  // LXI rp
+  case 0x01: // bc
+
+    state->b = code[2];
+    state->c = code[1];
+    new_pc = state->pc + 3;
+    break;
+  case 0x11: // de
+    state->d = code[2];
+    state->e = code[1];
+    new_pc = state->pc + 3;
+    break;
+  case 0x21: // hl
+    state->h = code[2];
+    state->l = code[1];
+    new_pc = state->pc + 3;
+    break;
+  case 0x31: // sp
+    state->sp = get16Bit(code[2], code[1]);
+    new_pc = state->pc + 3;
     break;
 
   // STAX
@@ -259,7 +337,7 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
   case 0xf2: // JP
   case 0xfa: // JM
     printf("Jccc");
-    opbytes = 3;
+    new_pc = 3;
     break;
 
   // Cccc
@@ -272,7 +350,7 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
   case 0xf4: // CP
   case 0xfc: // CM
     printf("Cccc");
-    opbytes = 3;
+    new_pc = 3;
     break;
 
   // Rccc
@@ -285,13 +363,12 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
   case 0xf0: // RP
   case 0xf8: // RM
     printf("Rccc");
-    opbytes = 3;
+    new_pc = 3;
     break;
 
     // RST x
     GENERATE_8_CASES(0xc7, 0xcf, 0xd7, 0xdf, 0xe7, 0xef, 0xf7, 0xff)
     printf("RST x");
-    opbytes = 3;
     break;
 
   // PUSH
@@ -334,7 +411,6 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
 
   printf("\n");
 
-  int new_pc = state->pc + opbytes;
   return new_pc;
 }
 
