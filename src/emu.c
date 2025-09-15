@@ -18,28 +18,9 @@ void printByte(uint8_t x) {
   printf("\n");
 }
 
-#define GENERATE_CASE(value, action)                                           \
-  case value:                                                                  \
-    action;                                                                    \
-    break;
 
-/* handle
-  xxxxxSSS | S = src register
-
-  xxDDDxxx | D = dest register
-
-  01DDDSSS if last two bits 01 then it's MOV
-
-  xxRPxxxx | RP = register pair
-
-  xxCCCxxx | C = condition flag
-
-  RST 0...7
-  11NNN111 | NNN = 0...7
-*/
-
-int handleOpcode(uint8_t *codebuffer, int pc) {
-  uint8_t *code = &codebuffer[pc];
+int handleOpcode(CPUState *state, uint8_t *registers[]) {
+  uint8_t *code = &state->memory[state->pc];
   int opbytes = 1;
 
   switch (code[0]) {
@@ -82,6 +63,9 @@ int handleOpcode(uint8_t *codebuffer, int pc) {
   // DAA
   case 0x27:
     printf("DAA");
+    break;
+  case 0x37:
+    printf("STC");
     break;
   // ANI
   case 0xe6:
@@ -163,24 +147,195 @@ int handleOpcode(uint8_t *codebuffer, int pc) {
   case 0xd3:
     printf("OUT");
     break;
+  // CPI
+  case 0xfe:
+    printf("CPI");
+    opbytes = 2;
+    break;
 
-    GENERATE_CASE(default, printf("DEFAULT"))
-    // default:
-    //   break;
-  }
-  uint8_t last_two_bits = code[0] >> 6;
-  uint8_t first_three_bits = code[0] & 7;
-
-  switch (last_two_bits) {
-  case 1:
+  // MOV
+  case 0x40 ... 0x75:
+  case 0x77 ... 0x7f:
     printf("MOV");
     opbytes = 3;
-    printByte(last_two_bits);
+    break;
+
+    // MVI
+    GENERATE_8_CASES(0x06, 0x0e, 0x16, 0x1e, 0x26, 0x2e, 0x36, 0x3e)
+    printf("MVI");
+    opbytes = 2;
+    break;
+
+    // LXI
+    GENERATE_4_CASES(0x01, 0x11, 0x21, 0x31)
+    printf("LXI");
+    opbytes = 3;
+    break;
+
+  // STAX
+  case 0x02:
+  case 0x12:
+    printf("STAX");
+    break;
+
+  // LDAX
+  case 0x0a:
+  case 0x1a:
+    printf("LDAX");
+    break;
+
+  // ADD
+  case 0x80 ... 0x87:
+    printf("ADD");
+    break;
+
+  // ADC
+  case 0x88 ... 0x8f:
+    printf("ADC");
+    break;
+
+  // SUB
+  case 0x90 ... 0x97:
+    printf("SUB");
+    break;
+
+  // SBB
+  case 0x98 ... 0x9f:
+    printf("SBB");
+    break;
+
+  // ANA
+  case 0xa0 ... 0xa7:
+    printf("ANA");
+    break;
+
+  // XRA
+  case 0xa8 ... 0xaf:
+    printf("XRA");
+    break;
+
+  // ORA
+  case 0xb0 ... 0xb7:
+    printf("ORA");
+    break;
+
+  // CMP
+  case 0xb8 ... 0xbf:
+    printf("CMP");
+    break;
+
+    // INR
+    GENERATE_8_CASES(0x04, 0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x34, 0x3c)
+    printf("INR");
+    break;
+
+    // DCR
+    GENERATE_8_CASES(0x05, 0x0d, 0x15, 0x1d, 0x25, 0x2d, 0x35, 0x3d)
+    printf("DCR");
+    break;
+
+    // INX
+    GENERATE_4_CASES(0x03, 0x13, 0x23, 0x33)
+    printf("INX");
+    break;
+
+    // DCX
+    GENERATE_4_CASES(0x0b, 0x1b, 0x2b, 0x3b)
+    printf("DCX");
+    break;
+
+    // DAD
+    GENERATE_4_CASES(0x09, 0x19, 0x29, 0x39)
+    printf("DAD");
+    break;
+
+  // Jccc
+  case 0xc2: // JNZ
+  case 0xca: // JZ
+  case 0xd2: // JNC
+  case 0xda: // JC
+  case 0xe2: // JPO
+  case 0xea: // JPE
+  case 0xf2: // JP
+  case 0xfa: // JM
+    printf("Jccc");
+    opbytes = 3;
+    break;
+
+  // Cccc
+  case 0xc4: // CNZ
+  case 0xcc: // CZ
+  case 0xd4: // CNC
+  case 0xdc: // CC
+  case 0xe4: // CPO
+  case 0xec: // CPE
+  case 0xf4: // CP
+  case 0xfc: // CM
+    printf("Cccc");
+    opbytes = 3;
+    break;
+
+  // Rccc
+  case 0xc0: // RNZ
+  case 0xc8: // RZ
+  case 0xd0: // RNC
+  case 0xd8: // RC
+  case 0xe0: // RPO
+  case 0xe8: // RPE
+  case 0xf0: // RP
+  case 0xf8: // RM
+    printf("Rccc");
+    opbytes = 3;
+    break;
+
+    // RST x
+    GENERATE_8_CASES(0xc7, 0xcf, 0xd7, 0xdf, 0xe7, 0xef, 0xf7, 0xff)
+    printf("RST x");
+    opbytes = 3;
+    break;
+
+  // PUSH
+  case 0xc5:
+  case 0xd5:
+  case 0xe5:
+  case 0xf5:
+    printf("PUSH x");
+    break;
+  // POP
+  case 0xc1:
+  case 0xd1:
+  case 0xe1:
+  case 0xf1:
+    printf("POP x");
+    break;
+
+  case 0x00:
+  case 0x08:
+  case 0x10:
+  case 0x18:
+  case 0x20:
+  case 0x28:
+  case 0x30:
+  case 0x38:
+  case 0xcb:
+  case 0xd9:
+  case 0xdd:
+  case 0xed:
+  case 0xfd:
+    printf("NOP");
+    break;
+
+  default:
+    printf("HEX: %x", code[0]);
     break;
   }
 
+  uint8_t first_three_bits = code[0] & 7;
+
   printf("\n");
-  return opbytes;
+
+  int new_pc = state->pc + opbytes;
+  return new_pc;
 }
 
 int main(int argc, char *argv[]) {
@@ -191,21 +346,29 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
+  CPUState cpu_state;
+  cpu_state.memory = (uint8_t *)malloc(MEMORY_SIZE);
+  cpu_state.pc = PROGRAM_START;
+
+  uint8_t *registers[8];
+  registers[0] = &cpu_state.b;
+  registers[1] = &cpu_state.c;
+  registers[2] = &cpu_state.d;
+  registers[3] = &cpu_state.e;
+  registers[4] = &cpu_state.h;
+  registers[5] = &cpu_state.l;
+  registers[6] = NULL; // m reg
+  registers[7] = &cpu_state.a;
+
   fseek(f, 0, SEEK_END);
   int fsize = ftell(f);
   fseek(f, 0, SEEK_SET);
 
-  unsigned char *buffer = malloc(fsize);
-  fread(buffer, fsize, 1, f);
+  fread(cpu_state.memory, fsize, 1, f);
   fclose(f);
 
-  int pc = 0;
-
-  // TODO: init everything here
-  // make the CPUState, allocate ram/rom, etc ...
-
-  while (pc < fsize) {
-    pc += handleOpcode(buffer, pc);
+  while (cpu_state.pc < fsize) {
+    cpu_state.pc = handleOpcode(&cpu_state, registers);
   }
   return 0;
 }

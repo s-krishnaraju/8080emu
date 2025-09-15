@@ -132,7 +132,28 @@ typedef struct {
   uint8_t l;
   uint16_t sp;
   uint16_t pc;
-  uint8_t *memory; // contents of what h & l register are pointing to
+  uint8_t *memory;
   ConditionCodes cc;
   uint8_t int_enable;
 } CPUState;
+
+#define MEMORY_SIZE 0x4000
+#define ROM_SIZE 0x2000
+#define STACK_START 0x2400 // grows down in memory
+#define PROGRAM_START 0x0000
+
+#define GENERATE_4_CASES(a, b, c, d)                                           \
+  case a:                                                                      \
+  case b:                                                                      \
+  case c:                                                                      \
+  case d:
+
+#define GENERATE_8_CASES(a, b, c, d, e, f, g, h)                               \
+  case a:                                                                      \
+  case b:                                                                      \
+  case c:                                                                      \
+  case d:                                                                      \
+  case e:                                                                      \
+  case f:                                                                      \
+  case g:                                                                      \
+  case h:

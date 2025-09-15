@@ -322,7 +322,6 @@ int handleOpcode(unsigned char *codebuffer, int pc) {
   case 0x5f:
     printf("MOV E,A");
     break;
-
   case 0x60:
     printf("MOV H,B");
     break;
