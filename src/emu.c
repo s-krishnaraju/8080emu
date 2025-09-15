@@ -209,14 +209,7 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
   }
 
   // MVI
-  case 0x06:
-  case 0x0e:
-  case 0x16:
-  case 0x1e:
-  case 0x26:
-  case 0x2e:
-  case 0x36:
-  case 0x3e: {
+  GENERATE_8_CASES(0x06, 0x0e, 0x16, 0x1e, 0x26, 0x2e, 0x36, 0x3e) {
     printf("MVI");
     uint8_t dest_reg = (code[0] >> 3) & 7;
     if (dest_reg == MEM_REGISTER) {
@@ -228,9 +221,9 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
     new_pc = state->pc + 2;
     break;
   }
+
   // LXI rp
   case 0x01: // bc
-
     state->b = code[2];
     state->c = code[1];
     new_pc = state->pc + 3;
@@ -265,6 +258,8 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
   // ADD
   case 0x80 ... 0x87:
     printf("ADD");
+    uint8_t reg = code[0] & 7;
+    
     break;
 
   // ADC
