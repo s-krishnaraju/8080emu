@@ -20,6 +20,11 @@ void printByte(uint8_t x) {
 
 uint16_t get16Bit(uint8_t hb, uint8_t lb) { return (hb << 8) | lb; }
 
+void unimplementedOpcode(char *opcode) {
+  printf("No opcode implemented for %s", opcode);
+  exit(EXIT_FAILURE);
+}
+
 uint8_t getMReg(CPUState *state) {
   uint16_t addr = get16Bit(state->h, state->l);
   return state->memory[addr];
@@ -92,6 +97,8 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
     state->cc.cy = (val > 0xff);
     // parity flag
     state->cc.p = Parity(val & 0xff);
+    // aux carry (flag 3rd bit carry to 4th)
+    state->cc.ac = ((state->a & 0x08) || (code[1] & 0x08)) && (!(val & 0x08));
 
     state->a = val & 0xff;
     new_pc = state->pc + 2;
@@ -110,6 +117,8 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
     state->cc.cy = (val > 0xff);
     // parity flag
     state->cc.p = Parity(val & 0xff);
+    // aux cary
+    state->cc.ac = ((state->a & 0x08) || (code[1] & 0x08)) && (!(val & 0x08));
 
     state->a = val & 0xff;
     new_pc = state->pc + 2;
@@ -125,6 +134,7 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
     state->cc.s = ((val & 0x80) != 0);
     state->cc.z = (val == 0);
     state->cc.p = Parity(val);
+    state->cc.ac = 0;
 
     state->a = val;
     new_pc = state->pc + 1;
@@ -140,6 +150,7 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
     state->cc.s = ((val & 0x80) != 0);
     state->cc.z = (val == 0);
     state->cc.p = Parity(val);
+    state->cc.ac = 0;
 
     state->a = val;
     new_pc = state->pc + 1;
@@ -258,19 +269,26 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
     break;
   }
 
-    // MVI
-    GENERATE_8_CASES(0x06, 0x0e, 0x16, 0x1e, 0x26, 0x2e, 0x36, 0x3e) {
-      printf("MVI");
-      uint8_t dest_reg = (code[0] >> 3) & 7;
-      if (dest_reg == MEM_REGISTER) {
-        setMReg(state, code[1]);
-      } else {
-        *registers[dest_reg] = code[1];
-      }
-
-      new_pc = state->pc + 2;
-      break;
+  // MVI
+  case 0x06:
+  case 0x0e:
+  case 0x16:
+  case 0x1e:
+  case 0x26:
+  case 0x2e:
+  case 0x36:
+  case 0x3e: {
+    printf("MVI");
+    uint8_t dest_reg = (code[0] >> 3) & 7;
+    if (dest_reg == MEM_REGISTER) {
+      setMReg(state, code[1]);
+    } else {
+      *registers[dest_reg] = code[1];
     }
+
+    new_pc = state->pc + 2;
+    break;
+  }
 
   // LXI rp
   case 0x01: // bc
@@ -418,29 +436,159 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
     break;
 
     // INR
-    GENERATE_8_CASES(0x04, 0x0c, 0x14, 0x1c, 0x24, 0x2c, 0x34, 0x3c)
+  case 0x04:
+  case 0x0c:
+  case 0x14:
+  case 0x1c:
+  case 0x24:
+  case 0x2c:
+  case 0x34:
+  case 0x3c: {
     printf("INR");
-    break;
+    uint8_t reg = (code[0] >> 3) & 7;
+    uint8_t val;
+    uint8_t tmp;
+    if (reg == MEM_REGISTER) {
+      tmp = getMReg(state);
+      val = tmp + 1;
+      setMReg(state, val);
+    } else {
+      tmp = *registers[reg];
+      val = tmp + 1;
+      *registers[reg] = val;
+    }
+    state->cc.z = (val == 0);
+    state->cc.s = ((val & 0x80) != 0);
+    state->cc.p = Parity(val);
+    state->cc.ac = (tmp & 0x08) && (!(val & 0x08)); 
+      break;
+  }
 
-    // DCR
-    GENERATE_8_CASES(0x05, 0x0d, 0x15, 0x1d, 0x25, 0x2d, 0x35, 0x3d)
+  // DCR
+  case 0x05:
+  case 0x0d:
+  case 0x15:
+  case 0x1d:
+  case 0x25:
+  case 0x2d:
+  case 0x35:
+  case 0x3d: {
     printf("DCR");
+    uint8_t reg = (code[0] >> 3) & 7;
+    uint8_t val;
+    if (reg == MEM_REGISTER) {
+      val = getMReg(state) - 1;
+      setMReg(state, val);
+    } else {
+      val = *registers[reg] - 1;
+      *registers[reg] = val;
+    }
+    state->cc.z = (val == 0);
+    state->cc.s = ((val & 0x80) != 0);
+    state->cc.p = Parity(val);
+    break;
+  }
+
+  // INX
+  case 0x03: {
+    printf("INX BC");
+    state->c += 1;
+    // we overflowed
+    if (state->c == 0) {
+      state->b += 1;
+    }
+    break;
+  }
+  case 0x13:
+    printf("INX DE");
+    state->e += 1;
+    if (state->e == 0) {
+      state->d += 1;
+    }
+    break;
+  case 0x23:
+    printf("INX HL");
+    state->l += 1;
+    if (state->l == 0) {
+      state->h += 1;
+    }
+    break;
+  case 0x33:
+    printf("INX SP");
+    state->sp += 1;
     break;
 
-    // INX
-    GENERATE_4_CASES(0x03, 0x13, 0x23, 0x33)
-    printf("INX");
+  // DCX
+  case 0x0b:
+    printf("DCX BC");
+    state->c -= 1;
+    // we underflowed
+    if (state->c == 0xff) {
+      state->b -= 1;
+    }
+    break;
+  case 0x1b:
+    printf("DCX DE");
+    state->e -= 1;
+    // we underflowed
+    if (state->e == 0xff) {
+      state->d -= 1;
+    }
+    break;
+  case 0x2b:
+    printf("DCX HL");
+    state->l -= 1;
+    // we underflowed
+    if (state->l == 0xff) {
+      state->h -= 1;
+    }
+    break;
+  case 0x3b:
+    printf("DCX SP");
+    state->sp -= 1;
     break;
 
-    // DCX
-    GENERATE_4_CASES(0x0b, 0x1b, 0x2b, 0x3b)
-    printf("DCX");
+  // DAD
+  case 0x09: {
+    printf("DAD BC");
+    uint16_t val = state->l + state->c;
+    state->l = val & 0xff;
+    uint8_t cy = val > 0xff;
+    val = state->h + state->b + cy;
+    state->cc.cy = val > 0xff;
+    state->h = val & 0xff;
     break;
-
-    // DAD
-    GENERATE_4_CASES(0x09, 0x19, 0x29, 0x39)
-    printf("DAD");
+  }
+  case 0x19: {
+    printf("DAD DE");
+    uint16_t val = state->l + state->e;
+    state->l = val & 0xff;
+    uint8_t cy = val > 0xff;
+    val = state->h + state->d + cy;
+    state->cc.cy = val > 0xff;
+    state->h = val & 0xff;
     break;
+  }
+  case 0x29: {
+    printf("DAD HL");
+    uint16_t val = state->l + state->l;
+    state->l = val & 0xff;
+    uint8_t cy = val > 0xff;
+    val = state->h + state->h + cy;
+    state->cc.cy = val > 0xff;
+    state->h = val & 0xff;
+    break;
+  }
+  case 0x39: {
+    printf("DAD SP");
+    uint16_t val = state->l + (state->sp & 0xff);
+    state->l = val & 0xff;
+    uint8_t cy = val > 0xff;
+    val = state->h + (state->sp >> 8) + cy;
+    state->cc.cy = val > 0xff;
+    state->h = val & 0xff;
+    break;
+  }
 
   // Jccc
   case 0xc2: // JNZ

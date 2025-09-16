@@ -118,7 +118,7 @@ typedef struct {
   uint8_t s : 1;  // sign
   uint8_t p : 1;  // parity
   uint8_t ac : 1; // aux carry for binary coded decimal arithmetic
-  uint8_t cy : 1;  // carry flag for add
+  uint8_t cy : 1; // carry flag for add
   uint8_t pad : 3;
 } ConditionCodes;
 
@@ -144,21 +144,4 @@ typedef struct {
 
 #define MEM_REGISTER 6
 
-#define GENERATE_4_CASES(a, b, c, d)                                           \
-  case a:                                                                      \
-  case b:                                                                      \
-  case c:                                                                      \
-  case d:
-
-#define GENERATE_8_CASES(a, b, c, d, e, f, g, h)                               \
-  case a:                                                                      \
-  case b:                                                                      \
-  case c:                                                                      \
-  case d:                                                                      \
-  case e:                                                                      \
-  case f:                                                                      \
-  case g:                                                                      \
-  case h:
-
-#define Parity(x)
-    x
+#define Parity(x) 1\
