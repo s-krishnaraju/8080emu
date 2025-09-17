@@ -15,151 +15,248 @@ void printByte(uint8_t x) {
       printf("0");
     }
   }
-  printf("\n");
 }
 
-uint16_t get16Bit(uint8_t hb, uint8_t lb) { return (hb << 8) | lb; }
-
-void unimplementedOpcode(char *opcode) {
-  printf("No opcode implemented for %s", opcode);
+void unimplementedOpcodeError(uint8_t opcode) {
+  printf("ERROR UNIMPLEMENTED OPCODE: ");
+  printByte(opcode);
+  printf("\n");
   exit(EXIT_FAILURE);
 }
 
-uint8_t getMReg(CPUState *state) {
+static inline uint16_t get16Bit(uint8_t hb, uint8_t lb) {
+  return (hb << 8) | lb;
+}
+
+static inline uint8_t getMReg(CPUState *state) {
   uint16_t addr = get16Bit(state->h, state->l);
   return state->memory[addr];
 }
 
-void setMReg(CPUState *state, uint8_t data) {
+static inline void setMReg(CPUState *state, uint8_t data) {
   uint16_t addr = get16Bit(state->h, state->l);
   state->memory[addr] = data;
 }
 
-int handleOpcode(CPUState *state, uint8_t *registers[]) {
+static inline uint8_t parity(uint8_t x) {
+  uint8_t n_one = 0;
+  for (uint8_t i = 0; i < 8; i++) {
+    if (x >> i)
+      n_one += 1;
+  }
+  return (n_one & 1) == 0;
+}
+
+static inline uint8_t sign(uint8_t x) { return (x & 0x80) != 0; }
+
+static inline void i8080_lda(CPUState *state, uint8_t hb, uint8_t lb) {
+  uint16_t addr = get16Bit(hb, lb);
+  state->a = state->memory[addr];
+  state->pc += 3;
+}
+
+static inline void i8080_sta(CPUState *state, uint8_t hb, uint8_t lb) {
+  uint16_t addr = get16Bit(hb, lb);
+  state->memory[addr] = state->a;
+  state->pc += 3;
+}
+
+static inline void i8080_lhld(CPUState *state, uint8_t hb, uint8_t lb) {
+  uint16_t addr = get16Bit(hb, lb);
+  state->l = state->memory[addr];
+  state->h = state->memory[addr + 1];
+  state->pc += 3;
+}
+
+static inline void i8080_shld(CPUState *state, uint8_t hb, uint8_t lb) {
+  uint16_t addr = get16Bit(hb, lb);
+  state->memory[addr] = state->l;
+  state->memory[addr + 1] = state->h;
+  state->pc += 3;
+}
+
+static inline void i8080_xchg(CPUState *state) {
+  uint8_t tmp = state->h;
+  state->h = state->d;
+  state->d = tmp;
+  tmp = state->l;
+  state->l = state->e;
+  state->e = tmp;
+  state->pc += 1;
+}
+
+static inline void i8080_adi(CPUState *state, uint8_t db, uint8_t carry) {
+  uint16_t val = state->a + db + carry;
+
+  state->cc.z = (val & 0xff) == 0;
+  state->cc.s = sign(val);
+  state->cc.cy = val > 0xff;
+  state->cc.p = parity(val);
+  state->cc.ac = ((state->a & 0x08) || (db & 0x08)) && (!(val & 0x08));
+
+  state->a = val & 0xff;
+  state->pc += 2;
+}
+
+static inline void i8080_sui(CPUState *state, uint8_t db, uint8_t carry) {
+  uint8_t val = state->a + ((~(db + carry)) + 1);
+
+  state->cc.cy = (db + carry) > state->a;
+  state->cc.s = sign(val);
+  state->cc.z = val == 0;
+  state->cc.p = parity(val);
+
+  state->a = val;
+  state->pc += 2;
+}
+
+static inline void i8080_daa(CPUState *state) {
+  uint8_t nib1 = state->a & 0x0f;
+  uint8_t nib2 = state->a >> 4;
+
+  if (nib1 > 9 || state->cc.ac)
+    nib1 += 6;
+
+  if (nib2 > 9 || state->cc.cy)
+    nib2 += 6;
+
+  uint8_t val = nib1 + (nib2 << 4);
+  state->cc.ac = (nib1 & 0xf0) != 0;
+  state->cc.cy = (nib2 & 0xf0) != 0;
+  state->cc.z = val == 0;
+  state->cc.p = parity(val);
+  state->cc.s = sign(val);
+
+  state->a = val;
+  state->pc += 1;
+}
+
+static inline void i8080_mov(CPUState *state, uint8_t opcode,
+                             uint8_t *registers[]) {
+  uint8_t dest_reg = (opcode >> 3) & 7;
+  uint8_t src_reg = opcode & 7;
+
+  if (src_reg == MEM_REGISTER) {
+    *registers[dest_reg] = getMReg(state);
+  } else if (dest_reg == MEM_REGISTER) {
+    setMReg(state, *registers[src_reg]);
+  } else {
+    *registers[dest_reg] = *registers[src_reg];
+  }
+  state->pc += 1;
+}
+
+static inline void i8080_mvi(CPUState *state, uint8_t opcode, uint8_t db,
+                             uint8_t *registers[]) {
+  uint8_t dest_reg = (opcode >> 3) & 7;
+
+  if (dest_reg == MEM_REGISTER) {
+    setMReg(state, db);
+  } else {
+    *registers[dest_reg] = db;
+  }
+  state->pc += 2;
+}
+
+static inline void i8080_lxi(CPUState *state, uint8_t *reg1, uint8_t *reg2,
+                             uint8_t hb, uint8_t lb) {
+  *reg1 = hb;
+  *reg2 = lb;
+  state->pc += 3;
+}
+
+static inline void i8080_lxi_sp(CPUState *state, uint8_t hb, uint8_t lb) {
+  state->sp = get16Bit(hb, lb);
+  state->pc += 3;
+}
+
+static inline void i8080_add(CPUState *state, uint8_t opcode,
+                             uint8_t *registers[], uint8_t carry) {
+  uint8_t reg = opcode & 7;
+  uint8_t db;
+  if (reg == MEM_REGISTER) {
+    db = getMReg(state);
+  } else {
+    db = *registers[reg];
+  }
+  uint16_t val = state->a + db + carry;
+
+  state->cc.z = (val & 0xff) == 0;
+  state->cc.s = sign(val);
+  state->cc.cy = val > 0xff;
+  state->cc.p = parity(val);
+  state->cc.ac = ((state->a & 0x08) || (db & 0x08)) && ((val & 0x08) == 0);
+
+  state->a = val & 0xff;
+  state->pc += 1;
+}
+
+static inline void i8080_sub(CPUState *state, uint8_t opcode,
+                             uint8_t *registers[], uint8_t carry) {
+
+  uint8_t reg = opcode & 7;
+  uint8_t db;
+  if (reg == MEM_REGISTER) {
+    db = getMReg(state);
+  } else {
+    db = *registers[reg];
+  }
+  db += carry;
+  uint8_t val = state->a + ((~db) + 1);
+  state->cc.cy = db > state->a;
+  state->cc.s = sign(val);
+  state->cc.z = val == 0;
+  state->cc.p = parity(val);
+
+  state->a = val;
+  state->pc += 1;
+}
+
+void handleOpcode(CPUState *state, uint8_t *registers[]) {
   uint8_t *code = &state->memory[state->pc];
-  int new_pc = state->pc + 1;
 
   switch (code[0]) {
   // LDA
-  case 0x3a: {
-    printf("LDA");
-    uint16_t addr = get16Bit(code[2], code[1]);
-    state->a = state->memory[addr];
-    new_pc = state->pc + 3;
+  case 0x3a:
+    i8080_lda(state, code[2], code[1]);
     break;
-  }
   // STA
-  case 0x32: {
-    printf("STA");
-    uint16_t addr = get16Bit(code[2], code[1]);
-    state->memory[addr] = state->a;
-    new_pc = state->pc + 3;
+  case 0x32:
+    i8080_sta(state, code[2], code[1]);
     break;
-  }
   // LHLD
-  case 0x2a: {
-    printf("LHLD");
-    uint16_t addr = get16Bit(code[2], code[1]);
-    state->l = state->memory[addr];
-    state->h = state->memory[addr + 1];
-    new_pc = state->pc + 3;
+  case 0x2a:
+    i8080_lhld(state, code[2], code[1]);
     break;
-  }
   // SHLD
-  case 0x22: {
-    printf("SHLD");
-    uint16_t addr = get16Bit(code[2], code[1]);
-    state->memory[addr] = state->l;
-    state->memory[addr + 1] = state->h;
-    new_pc = state->pc + 3;
+  case 0x22:
+    i8080_shld(state, code[2], code[1]);
     break;
-  }
   // XCHG
   case 0xeb:
-    printf("XCHG");
-    uint8_t tmp = state->h;
-    state->h = state->d;
-    state->d = tmp;
-    tmp = state->l;
-    state->l = state->e;
-    state->e = tmp;
+    i8080_xchg(state);
     break;
   // ADI
-  case 0xc6: {
-    printf("ADI");
-    uint16_t val = state->a + code[1];
-
-    // zero flag
-    state->cc.z = ((val & 0xff) == 0);
-    // sign flag
-    state->cc.s = ((val & 0x80) != 0);
-    // carry flag
-    state->cc.cy = (val > 0xff);
-    // parity flag
-    state->cc.p = Parity(val & 0xff);
-    // aux carry (flag 3rd bit carry to 4th)
-    state->cc.ac = ((state->a & 0x08) || (code[1] & 0x08)) && (!(val & 0x08));
-
-    state->a = val & 0xff;
-    new_pc = state->pc + 2;
+  case 0xc6:
+    i8080_adi(state, code[1], 0);
     break;
-  }
   // ACI
-  case 0xce: {
-    printf("ACI");
-    uint16_t val = state->a + code[1] + state->cc.cy;
-
-    // zero flag
-    state->cc.z = ((val & 0xff) == 0);
-    // sign flag
-    state->cc.s = ((val & 0x80) != 0);
-    // carry flag
-    state->cc.cy = (val > 0xff);
-    // parity flag
-    state->cc.p = Parity(val & 0xff);
-    // aux cary
-    state->cc.ac = ((state->a & 0x08) || (code[1] & 0x08)) && (!(val & 0x08));
-
-    state->a = val & 0xff;
-    new_pc = state->pc + 2;
+  case 0xce:
+    i8080_adi(state, code[1], state->cc.cy);
     break;
-  }
   // SUI
-  case 0xd6: {
-    printf("SUI");
-    uint8_t val = code[1];
-    // flag borrow
-    state->cc.cy = val > state->a;
-    val = state->a - val;
-    state->cc.s = ((val & 0x80) != 0);
-    state->cc.z = (val == 0);
-    state->cc.p = Parity(val);
-    state->cc.ac = 0;
-
-    state->a = val;
-    new_pc = state->pc + 1;
+  case 0xd6:
+    i8080_sui(state, code[1], 0);
     break;
-  }
   // SBI
-  case 0xde: {
-    printf("SBI");
-    uint8_t val = code[1] + state->cc.cy;
-    // flag borrow
-    state->cc.cy = val > state->a;
-    val = state->a - val;
-    state->cc.s = ((val & 0x80) != 0);
-    state->cc.z = (val == 0);
-    state->cc.p = Parity(val);
-    state->cc.ac = 0;
-
-    state->a = val;
-    new_pc = state->pc + 1;
+  case 0xde:
+    i8080_sui(state, code[1], state->cc.cy);
     break;
-  }
   // DAA
   case 0x27:
-    printf("DAA");
+    i8080_daa(state);
     break;
+  // STC
   case 0x37:
     printf("STC");
     break;
@@ -246,28 +343,13 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
   // CPI
   case 0xfe:
     printf("CPI");
-    new_pc = 2;
     break;
 
   // MOV
   case 0x40 ... 0x75:
-  case 0x77 ... 0x7f: {
-    printf("MOV");
-
-    uint8_t dest_reg = (code[0] >> 3) & 7;
-    uint8_t src_reg = code[0] & 7;
-
-    if (src_reg == MEM_REGISTER) {
-      dest_reg = getMReg(state);
-    } else if (dest_reg == MEM_REGISTER) {
-      setMReg(state, *registers[src_reg]);
-    } else {
-      *registers[dest_reg] = *registers[src_reg];
-    }
-
-    new_pc = state->pc + 3;
+  case 0x77 ... 0x7f:
+    i8080_mov(state, code[0], registers);
     break;
-  }
 
   // MVI
   case 0x06:
@@ -277,38 +359,22 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
   case 0x26:
   case 0x2e:
   case 0x36:
-  case 0x3e: {
-    printf("MVI");
-    uint8_t dest_reg = (code[0] >> 3) & 7;
-    if (dest_reg == MEM_REGISTER) {
-      setMReg(state, code[1]);
-    } else {
-      *registers[dest_reg] = code[1];
-    }
-
-    new_pc = state->pc + 2;
+  case 0x3e:
+    i8080_mvi(state, code[0], code[1], registers);
     break;
-  }
 
-  // LXI rp
+  // LXI
   case 0x01: // bc
-    state->b = code[2];
-    state->c = code[1];
-    new_pc = state->pc + 3;
+    i8080_lxi(state, &state->b, &state->c, code[2], code[1]);
     break;
   case 0x11: // de
-    state->d = code[2];
-    state->e = code[1];
-    new_pc = state->pc + 3;
+    i8080_lxi(state, &state->d, &state->e, code[2], code[1]);
     break;
   case 0x21: // hl
-    state->h = code[2];
-    state->l = code[1];
-    new_pc = state->pc + 3;
+    i8080_lxi(state, &state->h, &state->l, code[2], code[1]);
     break;
   case 0x31: // sp
-    state->sp = get16Bit(code[2], code[1]);
-    new_pc = state->pc + 3;
+    i8080_lxi_sp(state, code[2], code[1]);
     break;
 
   // STAX
@@ -325,95 +391,26 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
 
   // ADD
   case 0x80 ... 0x87: {
-    printf("ADD");
-    uint8_t reg = code[0] & 7;
-    uint16_t val;
-    if (reg == MEM_REGISTER) {
-      val = state->a + getMReg(state);
-    } else {
-      val = state->a + *registers[reg];
-    }
-    // zero flag
-    state->cc.z = ((val & 0xff) == 0);
-    // sign flag
-    state->cc.s = ((val & 0x80) != 0);
-    // carry flag
-    state->cc.cy = (val > 0xff);
-    // parity flag
-    state->cc.p = Parity(val & 0xff);
-
-    state->a = val & 0xff;
+    i8080_add(state, code[0], registers, 0);
     break;
   }
 
   // ADC
   case 0x88 ... 0x8f: {
-    printf("ADC");
-    uint8_t reg = code[0] & 7;
-    uint16_t val;
-    if (reg == MEM_REGISTER) {
-      val = state->a + getMReg(state);
-    } else {
-      val = state->a + *registers[reg];
-    }
-    val += state->cc.cy;
-
-    // zero flag
-    state->cc.z = ((val & 0xff) == 0);
-    // sign flag
-    state->cc.s = ((val & 0x80) != 0);
-    // carry flag
-    state->cc.cy = (val > 0xff);
-    // parity flag
-    state->cc.p = Parity(val & 0xff);
-
-    state->a = val & 0xff;
+    i8080_add(state, code[0], registers, state->cc.cy);
     break;
   }
 
   // SUB
-  case 0x90 ... 0x97: {
-    printf("SUB");
-    uint8_t reg = code[0] & 7;
-    uint8_t val;
-    if (reg == MEM_REGISTER) {
-      val = getMReg(state);
-    } else {
-      val = *registers[reg];
-    }
-
-    // flag borrow
-    state->cc.cy = val > state->a;
-    val = state->a - val;
-    state->cc.s = ((val & 0x80) != 0);
-    state->cc.z = (val == 0);
-    state->cc.p = Parity(val);
-
-    state->a = val;
+  case 0x90 ... 0x97: 
+    i8080_sub(state, code[0], registers, 0);
     break;
-  }
+  
 
   // SBB
-  case 0x98 ... 0x9f: {
-    uint8_t reg = code[0] & 7;
-    uint8_t val;
-    if (reg == MEM_REGISTER) {
-      val = getMReg(state);
-    } else {
-      val = *registers[reg];
-    }
-    val += state->cc.cy;
-
-    // flag borrow
-    state->cc.cy = val > state->a;
-    val = state->a - val;
-    state->cc.s = ((val & 0x80) != 0);
-    state->cc.z = (val == 0);
-    state->cc.p = Parity(val);
-
-    state->a = val;
+  case 0x98 ... 0x9f: 
+    i8080_sub(state, code[0], registers, state->cc.cy);
     break;
-  }
 
   // ANA
   case 0xa0 ... 0xa7:
@@ -458,10 +455,10 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
       *registers[reg] = val;
     }
     state->cc.z = (val == 0);
-    state->cc.s = ((val & 0x80) != 0);
-    state->cc.p = Parity(val);
-    state->cc.ac = (tmp & 0x08) && (!(val & 0x08)); 
-      break;
+    state->cc.s = (sign(val));
+    state->cc.p = parity(val);
+    state->cc.ac = (tmp & 0x08) && (!(val & 0x08));
+    break;
   }
 
   // DCR
@@ -483,9 +480,9 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
       val = *registers[reg] - 1;
       *registers[reg] = val;
     }
-    state->cc.z = (val == 0);
-    state->cc.s = ((val & 0x80) != 0);
-    state->cc.p = Parity(val);
+    state->cc.z = val == 0;
+    state->cc.s = sign(val);
+    state->cc.p = parity(val);
     break;
   }
 
@@ -629,8 +626,15 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
     new_pc = 3;
     break;
 
-    // RST x
-    GENERATE_8_CASES(0xc7, 0xcf, 0xd7, 0xdf, 0xe7, 0xef, 0xf7, 0xff)
+  // RST x
+  case 0xc7:
+  case 0xcf:
+  case 0xd7:
+  case 0xdf:
+  case 0xe7:
+  case 0xef:
+  case 0xf7:
+  case 0xff:
     printf("RST x");
     break;
 
@@ -666,15 +670,9 @@ int handleOpcode(CPUState *state, uint8_t *registers[]) {
     break;
 
   default:
-    printf("HEX: %x", code[0]);
+    unimplementedOpcodeError(code[0]);
     break;
   }
-
-  uint8_t first_three_bits = code[0] & 7;
-
-  printf("\n");
-
-  return new_pc;
 }
 
 int main(int argc, char *argv[]) {
@@ -696,7 +694,7 @@ int main(int argc, char *argv[]) {
   registers[3] = &cpu_state.e;
   registers[4] = &cpu_state.h;
   registers[5] = &cpu_state.l;
-  registers[6] = NULL; // m reg
+  registers[6] = NULL; // mem reg
   registers[7] = &cpu_state.a;
 
   fseek(f, 0, SEEK_END);
@@ -707,7 +705,7 @@ int main(int argc, char *argv[]) {
   fclose(f);
 
   while (cpu_state.pc < fsize) {
-    cpu_state.pc = handleOpcode(&cpu_state, registers);
+    handleOpcode(&cpu_state, registers);
   }
   return 0;
 }
