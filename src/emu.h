@@ -139,9 +139,9 @@ typedef struct {
 
 #define MEMORY_SIZE 0x4000
 #define ROM_SIZE 0x2000
-#define STACK_START 0x2400 // grows down in memory
+// grows down in memory and start one after end of stack (23ff)
+#define STACK_START 0x2400 
 #define PROGRAM_START 0x0000
 
 #define MEM_REGISTER 6
 
-#define Parity(x) 1\
