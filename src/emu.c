@@ -574,6 +574,91 @@ static inline void i8080_pchl(CPUState *state) {
   state->pc = addr;
 }
 
+static inline void i8080_push(CPUState *state, uint8_t hr, uint8_t lr) {
+  state->memory[state->sp - 1] = hr;
+  state->memory[state->sp - 2] = lr;
+  state->sp -= 2;
+
+  state->pc += 1;
+}
+
+static inline void i8080_pop(CPUState *state, uint8_t *hr, uint8_t *lr) {
+  *lr = state->memory[state->sp];
+  *hr = state->memory[state->sp + 1];
+  state->sp += 2;
+
+  state->pc += 1;
+}
+
+static inline uint8_t make_psw_flag(const ConditionCodes *cc) {
+  assert((cc->cy == 1) || (cc->cy == 0));
+  uint8_t flag = cc->cy & 2;
+  flag &= cc->p << 2;
+  flag &= cc->ac << 4;
+  flag &= cc->z << 6;
+  flag &= cc->s << 7;
+  return flag;
+}
+
+static inline void i8080_push_psw(CPUState *state) {
+  state->memory[state->sp - 1] = state->a;
+  state->memory[state->sp - 2] = make_psw_flag(&state->cc);
+  state->sp -= 2;
+
+  state->pc += 1;
+}
+
+static inline void i8080_pop_psw(CPUState *state) {
+  uint8_t psw_flag = state->memory[state->sp];
+  state->cc.cy = psw_flag & 1;
+  state->cc.p = psw_flag & 4;
+  state->cc.z = psw_flag & 6;
+  state->cc.s = psw_flag & 7;
+
+  state->a = state->memory[state->sp + 1];
+  state->sp += 2;
+
+  state->pc += 1;
+}
+
+static inline void i8080_xthl(CPUState *state) {
+  uint8_t tmp = state->l;
+  state->l = state->memory[state->sp];
+  state->memory[state->sp] = tmp;
+  tmp = state->h;
+  state->h = state->memory[state->sp + 1];
+  state->memory[state->sp + 1] = tmp;
+
+  state->pc += 1;
+}
+
+static inline void i8080_ei(CPUState *state) {
+  state->int_enable = 1;
+  state->pc += 1;
+}
+
+static inline void i8080_di(CPUState *state) {
+  state->int_enable = 0;
+  state->pc += 1;
+}
+
+static inline void i8080_sphl(CPUState *state) {
+  state->sp = get16Bit(state->h, state->l);
+  state->pc += 1;
+}
+
+static inline void i8080_in(CPUState *state,uint8_t port){
+
+}
+
+static inline void i8080_out(CPUState *state, uint8_t port){
+
+}
+
+static inline void i8080_halt(CPUState *state, uint8_t port){
+
+}
+
 void handleOpcode(CPUState *state, uint8_t *registers[]) {
   uint8_t *code = &state->memory[state->pc];
 
@@ -676,19 +761,19 @@ void handleOpcode(CPUState *state, uint8_t *registers[]) {
     break;
   // XTHL
   case 0xe3:
-    printf("XTHL");
+    i8080_xthl(state);
     break;
   // SPHL
   case 0xf9:
-    printf("SPHL");
+      i8080_sphl(state);
     break;
   // EI
   case 0xfb:
-    printf("EI");
+      i8080_ei(state);
     break;
   // DI
   case 0xf3:
-    printf("DI");
+      i8080_di(state);
     break;
   // HLT
   case 0x76:
@@ -916,17 +1001,34 @@ void handleOpcode(CPUState *state, uint8_t *registers[]) {
 
   // PUSH
   case 0xc5:
-  case 0xd5:
-  case 0xe5:
-  case 0xf5:
-    printf("PUSH x");
+    i8080_push(state, state->b, state->c);
     break;
+  case 0xd5:
+    i8080_push(state, state->d, state->e);
+    break;
+  case 0xe5:
+    i8080_push(state, state->h, state->l);
+    break;
+
+  // PUSH PSW
+  case 0xf5:
+    i8080_push_psw(state);
+    break;
+
   // POP
   case 0xc1:
+    i8080_pop(state, &state->b, &state->c);
+    break;
   case 0xd1:
+    i8080_pop(state, &state->d, &state->e);
+    break;
   case 0xe1:
+    i8080_pop(state, &state->h, &state->l);
+    break;
+
+  // POP PSW
   case 0xf1:
-    printf("POP x");
+    i8080_pop_psw(state);
     break;
 
   // NOP
